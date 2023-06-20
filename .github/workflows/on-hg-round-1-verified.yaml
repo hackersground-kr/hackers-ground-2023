@@ -1,4 +1,4 @@
-name: On Team App Verified
+name: On Team Building Verified
 
 on:
   issue_comment:
@@ -87,6 +87,7 @@ jobs:
           echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
         }
 
+
     - name: Check issue type
       id: issue-type
       shell: pwsh
@@ -115,7 +116,7 @@ jobs:
         echo "name=$teamName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
     - name: Add a label - NOT Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -125,7 +126,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
 
     - name: Comment to issue - NOT Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -135,23 +136,23 @@ jobs:
         body: |
           👋🏼 @${{ steps.issue.outputs.githubId }} 님!
 
-          팀 앱 제출을 확인하는 과정에서 문제가 발생했습니다. 😢
+          팀빌딩 결과를 확인하는 과정에서 문제가 발생했습니다. 😢
 
           곧바로 사무국을 찾아가서 문제를 해결해주세요. 🙏
 
     - name: Post message to Discord - NOT Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
       uses: Ilshidur/action-discord@master
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
       with:
         args: |
-          "${{ steps.team.outputs.name }}"팀의 앱 제출 결과를 확인하는 과정에서 문제가 발생했습니다. 😢
+          "${{ steps.team.outputs.name }}"팀의 팀빌딩 결과 확인 과정에서 문제가 발생했습니다. 😢
 
-          곧바로 사무국을 찾아가서 문제를 해결해주세요. 🙏
+          지금 바로 사무국을 찾아가서 문제를 해결해주세요. 🙏
 
     - name: Add a label - Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,7 +163,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
 
     - name: Comment to issue - Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -172,27 +173,27 @@ jobs:
         body: |
           👋🏼 @${{ steps.issue.outputs.githubId }} 님!
 
-          팀 앱 제출 확인이 끝났습니다. 축하드립니다! 🎉
+          팀빌딩 결과 확인이 끝났습니다. 축하드립니다! 🎉
 
-          계속해서 앱을 개발해 주세요! 💪 끝날 때 까지 끝난 게 아닙니다.
+          이제 바로 팀의 주제를 정해주세요. 더 중요한 다음 라운드가 다가오고 있습니다! 💪
           
           부지런히 코딩하고, 팀원들과 소통하며, 더 좋은 결과물을 만들어봅시다. 🚀 그리고 필요하면 기술 멘토님과 비기술 멘토님들께 도움을 요청하세요. 🙏
 
     - name: Post message to Discord - Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
       uses: Ilshidur/action-discord@master
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
       with:
         args: |
-          "${{ steps.team.outputs.name }}"팀의 앱 제출 결과를 확인했습니다. 💪
+          "${{ steps.team.outputs.name }}"팀의 팀빌딩 결과를 확인했습니다. 💪
 
     - name: Close issue - Verified
-      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      if: steps.issue-type.outputs.isTeamBuilding == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         gh issue close ${{ steps.issue.outputs.number }} \
-          -c "팀 앱 제출을 확인했습니다. 이슈를 닫습니다." \
+          -c "팀빌딩 결과를 확인했습니다. 이슈를 닫습니다." \
           -R ${{ github.event.repository.full_name }}

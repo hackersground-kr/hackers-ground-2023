@@ -94,11 +94,13 @@ jobs:
         $title = "${{ steps.issue.outputs.title }}"
 
         $isCsc = $title.Contains("챌린지 완료 인증")
+        $isTeamBuilding = $title.Contains("팀빌딩 제출")
         $isTeamTopic = $title.Contains("해커톤 주제 제출")
         $isTeamApp = $title.Contains("해커톤 앱 제출")
         $isTeamPitch = $title.Contains("해커톤 발표자료 제출")
 
         echo "isCsc=$isCsc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamBuilding=$isTeamBuilding" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
         echo "isTeamTopic=$isTeamTopic" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
         echo "isTeamApp=$isTeamApp" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
         echo "isTeamPitch=$isTeamPitch" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append

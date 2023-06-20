@@ -148,7 +148,7 @@ jobs:
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-issue'
-        title: '`${{ github.event.inputs.team-name }}`팀 팀빌딩 제출'
+        title: '[${{ github.event.inputs.team-name }}] 팀빌딩 제출'
         body: |
           ## `${{ github.event.inputs.team-name }}`팀 팀빌딩 결과 제출
 
