@@ -1,0 +1,196 @@
+name: On Team App Verified
+
+on:
+  issue_comment:
+    types:
+    - created
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: 'Issue number'
+        required: true
+        default: ''
+      verified:
+        description: 'Value indicating whether the verification process is successful or not'
+        required: true
+        default: 'false'
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  verification-start:
+    name: 'Completing verification'
+
+    runs-on: ubuntu-latest
+
+    steps:
+    # - name: Check event payload
+    #   shell: pwsh
+    #   run: |
+    #     $eventPayload = ${{ toJson(github) }}
+
+    - name: Get GitHub access token
+      id: github-connect
+      shell: pwsh
+      run: |
+        $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
+  
+        # Get a random number
+        $random = Get-Random -Minimum 0 -Maximum $ids.Length
+  
+        # Get the random assignee
+        $id = $ids[$random]
+
+        $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/access-token?id=$id"
+        $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
+
+        echo "::add-mask::$token"
+        echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+    - name: Check issue details
+      id: issue
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ steps.github-connect.outputs.token }}
+      run: |
+        if ("${{ github.event_name}}" -eq "workflow_dispatch") {
+          echo "number=${{ github.event.inputs.issue-number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+          $issue = $(gh api /repos/${{ github.repository }}/issues/${{ github.event.inputs.issue-number }} | ConvertFrom-Json)
+          echo "title=$($issue.title)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          echo "githubId=$($issue.user.login)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "assignee=$($issue.assignee)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          $verified = ("${{ github.event.inputs.verified }}".ToLowerInvariant() -eq "true") ? "true" : "false"
+          $invalid = ""
+
+          echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        } else {
+          $number = "${{ github.event.issue.number }}"
+          $title = "${{ github.event.issue.title }}"
+          $githubId = "${{ github.event.issue.user.login }}"
+          $assignee = "${{ github.event.issue.assignee }}"
+          $verified = ("${{ github.event.comment.body }}".Contains("/ok")) ? "true" : ""
+          $invalid = ("${{ github.event.comment.body }}".Contains("/invalid")) ? "true" : ""
+
+          echo "number=$number" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+          echo "title=$title" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "githubId=$githubId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "assignee=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        }
+
+    - name: Check issue type
+      id: issue-type
+      shell: pwsh
+      run: |
+        $title = "${{ steps.issue.outputs.title }}"
+
+        $isCsc = $title.Contains("챌린지 완료 인증")
+        $isTeamTopic = $title.Contains("해커톤 주제 제출")
+        $isTeamApp = $title.Contains("해커톤 앱 제출")
+        $isTeamPitch = $title.Contains("해커톤 발표자료 제출")
+
+        echo "isCsc=$isCsc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamTopic=$isTeamTopic" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamApp=$isTeamApp" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamPitch=$isTeamPitch" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Check team name
+      id: team
+      shell: pwsh
+      run: |
+        $title = "${{ steps.issue.outputs.title }}"
+        $teamName = $title.Contains("]") ? $title.Substring(0, $title.IndexOf(']')).Replace("[", "").Replace("]", "").Trim().ToLowerInvariant() : ""
+
+        echo "name=$teamName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Add a label - NOT Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue edit ${{ steps.issue.outputs.number }} \
+          --add-label "invalid" \
+          -R ${{ github.event.repository.full_name }}
+
+    - name: Comment to issue - NOT Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'create-comment'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        emoji: 'confused,eyes'
+        body: |
+          👋🏼 @${{ steps.issue.outputs.githubId }} 님!
+
+          팀 앱 제출을 확인하는 과정에서 문제가 발생했습니다. 😢
+
+          곧바로 사무국을 찾아가서 문제를 해결해주세요. 🙏
+
+    - name: Post message to Discord - NOT Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && (steps.issue.outputs.verified == 'false' || steps.issue.outputs.invalid == 'true')
+      uses: Ilshidur/action-discord@master
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
+      with:
+        args: |
+          "${{ steps.team.outputs.name }}"팀의 앱 제출 결과를 확인하는 과정에서 문제가 발생했습니다. 😢
+
+          곧바로 사무국을 찾아가서 문제를 해결해주세요. 🙏
+
+    - name: Add a label - Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue edit ${{ steps.issue.outputs.number }} \
+          --add-label "verified" \
+          --remove-label "verifying,invalid" \
+          -R ${{ github.event.repository.full_name }}
+
+    - name: Comment to issue - Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'create-comment'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        emoji: 'hooray'
+        body: |
+          👋🏼 @${{ steps.issue.outputs.githubId }} 님!
+
+          팀 앱 제출 확인이 끝났습니다. 축하드립니다! 🎉
+
+          계속해서 앱을 개발해 주세요! 💪 끝날 때 까지 끝난 게 아닙니다.
+          
+          부지런히 코딩하고, 팀원들과 소통하며, 더 좋은 결과물을 만들어봅시다. 🚀 그리고 필요하면 기술 멘토님과 비기술 멘토님들께 도움을 요청하세요. 🙏
+
+    - name: Post message to Discord - Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      uses: Ilshidur/action-discord@master
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
+      with:
+        args: |
+          "${{ steps.team.outputs.name }}"팀의 앱 제출 결과를 확인했습니다. 💪
+
+    - name: Close issue - Verified
+      if: steps.issue-type.outputs.isTeamApp == 'true' && steps.issue.outputs.verified == 'true' && github.event_name != 'workflow_dispatch'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue close ${{ steps.issue.outputs.number }} \
+          -c "팀 앱 제출을 확인했습니다. 이슈를 닫습니다." \
+          -R ${{ github.event.repository.full_name }}

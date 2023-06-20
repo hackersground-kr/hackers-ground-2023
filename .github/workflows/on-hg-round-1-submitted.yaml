@@ -1,0 +1,181 @@
+name: On Team Building Submitted
+
+on:
+  workflow_dispatch:
+    inputs:
+      team-name:
+        description: 'Team name'
+        required: true
+        default: ''
+      repository:
+        description: 'Repository name'
+        required: true
+        default: ''
+      leader:
+        description: 'GitHub ID for leader'
+        required: true
+        default: ''
+      members:
+        description: 'Comma-delimited GitHub IDs for members'
+        required: true
+        default: ''
+      emails:
+        description: 'Comma-delimited email addresses for members'
+        required: true
+        default: ''
+      date-submitted:
+        description: 'Date submitted'
+        required: true
+        default: ''
+      label:
+        description: 'Label for issue'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+env:
+  AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  team-repository:
+    name: Set team repository
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Get GitHub access token
+      id: github-connect
+      shell: pwsh
+      run: |
+        $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
+  
+        # Get a random number
+        $random = Get-Random -Minimum 0 -Maximum $ids.Length
+  
+        # Get the random assignee
+        $id = $ids[$random]
+
+        $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/access-token?id=$id"
+        $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
+
+        echo "::add-mask::$token"
+        echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+    - name: Check issue date/time
+      id: checkpoint
+      shell: pwsh
+      run: |
+        $tz = [TimeZoneInfo]::FindSystemTimeZoneById("Asia/Seoul")
+        $dateSubmitted = [DateTimeOffset]::Parse("${{ github.event.inputs.date-submitted }}")
+        $offset = $tz.GetUtcOffset($dateSubmitted)
+
+        $dateSubmitted = $dateSubmitted.ToOffset($offset)
+        $dateDue = $([DateTimeOffset]::Parse("${{ vars.HG_DUE_ROUND_1 }}"))
+        $isOverdue = "$($dateSubmitted -gt $dateDue)".ToLowerInvariant()
+
+        $dateSubmittedValue = $dateSubmitted.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+        $dateDueValue = $dateDue.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+
+        echo "dateSubmitted=$dateSubmittedValue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "dateDue=$dateDueValue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isOverdue=$isOverdue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Get team members
+      id: members
+      shell: pwsh
+      run: |
+        $members = ("${{ github.event.inputs.members }}" -split "," | `
+          ForEach-Object { $_.Trim() } | `
+          Where-Object { $_ -ne "" } | `
+          ForEach-Object { "@$_" }) `
+            -join ", "
+
+        echo "githubIds=$members" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Get random assignee
+      id: assignee
+      shell: pwsh
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-randomassignee/Get-RandomAssignee.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Get-RandomAssignee.ps1
+        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ vars.VERIFIERS }}")
+  
+        echo "githubId=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+  
+    - name: Set team repository
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ steps.github-connect.outputs.token }}
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/set-teamrepository/Set-TeamRepository.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Set-TeamRepository.ps1
+        ~/Set-TeamRepository.ps1 -RepositoryName "${{ github.event.inputs.repository }}" -TeamLeader "${{ github.event.inputs.leader }}" -TeamMembers "${{ github.event.inputs.members }}"
+
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        client-id: ${{ env.AZURE_CLIENT_ID }}
+        tenant-id: ${{ env.AZURE_TENANT_ID }}
+        subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}        
+
+    - name: Create Azure resource group
+      id: resource-group
+      shell: pwsh
+      run: |
+        $rg = $(az group create --name rg-hg-${{ github.event.inputs.repository }} --location koreacentral) | ConvertFrom-Json
+
+        $resourceGroupId = $rg.id
+        $resourceGroupName = $rg.name
+
+        echo "id=$resourceGroupId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "name=$resourceGroupName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Assign role to members to resource group
+      shell: pwsh
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/assign-role-to-resourcegroup/Assign-RoleToResourceGroup.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Assign-RoleToResourceGroup.ps1
+        $assigned = $(~/Assign-RoleToResourceGroup.ps1 -Members "${{ github.event.inputs.emails }}" -ResourceGroup "${{ steps.resource-group.outputs.name }}")
+
+    - name: Create an issue
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'create-issue'
+        title: '`${{ github.event.inputs.team-name }}`팀 팀빌딩 제출'
+        body: |
+          ## `${{ github.event.inputs.team-name }}`팀 팀빌딩 결과 제출
+
+          - 제출 시각: ${{ steps.checkpoint.outputs.dateSubmitted }}
+          - 마감 시각: ${{ steps.checkpoint.outputs.dateDue }}
+
+          ### 팀원
+
+          - 팀장: @${{ github.event.inputs.leader }}
+          - 팀원: ${{ steps.members.outputs.githubIds }}
+
+          ### 팀 레포지토리
+
+          - https://github.com/hackersground-kr/${{ github.event.inputs.repository }}
+
+          ### 애저 클라우드 리소스
+
+          - https://portal.azure.com/#@hackersground.kr/resource${{ steps.resource-group.outputs.id }}/overview
+        labels: 'round-1,hackathon,team-building,${{ github.event.inputs.label }}'
+        assignees: ${{ steps.assignee.outputs.githubId }}
+
+    - name: Post message to Discord
+      uses: Ilshidur/action-discord@master
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
+      with:
+        args: |
+          "${{ github.event.inputs.team-name }}"팀이 팀빌딩 결과를 제출했습니다.
+
+          - 제출 시각: ${{ steps.checkpoint.outputs.dateSubmitted }}

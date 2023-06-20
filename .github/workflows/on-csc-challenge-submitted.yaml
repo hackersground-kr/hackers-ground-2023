@@ -1,9 +1,9 @@
 name: On Challenge Submitted
 
 on:
-  issues:
-    types:
-    - opened
+  # issues:
+  #   types:
+  #   - opened
   workflow_dispatch:
     inputs:
       issue-number:
@@ -28,11 +28,29 @@ jobs:
     #   run: |
     #     $eventPayload = ${{ toJson(github) }}
 
+    - name: Get GitHub access token
+      id: github-connect
+      shell: pwsh
+      run: |
+        $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
+  
+        # Get a random number
+        $random = Get-Random -Minimum 0 -Maximum $ids.Length
+  
+        # Get the random assignee
+        $id = $ids[$random]
+
+        $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/github/access-token?id=$id"
+        $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
+
+        echo "::add-mask::$token"
+        echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
     - name: Check issue details
       id: issue
       shell: pwsh
       env:
-        GH_TOKEN: ${{ secrets.GH_PAT }}
+        GH_TOKEN: ${{ steps.github-connect.outputs.token }}
       run: |
         if ("${{ github.event_name}}" -eq "workflow_dispatch") {
           echo "number=${{ github.event.inputs.issue-number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
@@ -53,7 +71,7 @@ jobs:
 
           echo "title=$('${{ github.event.issue.title }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
-          $body = $('${{ github.event.issue.body }}') | ConvertTo-Json -Compress
+          $body = $("${{ github.event.issue.body }}") | ConvertTo-Json -Compress
           echo "body=$body" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
           echo "created_at=$('${{ github.event.issue.created_at }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
@@ -80,7 +98,24 @@ jobs:
         echo "dateDue=$dateDueValue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
         echo "isOverdue=$isOverdue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
+    - name: Check issue type
+      id: issue-type
+      shell: pwsh
+      run: |
+        $title = "${{ steps.issue.outputs.title }}"
+
+        $isCsc = $title.Contains("챌린지 완료 인증")
+        $isTeamTopic = $title.Contains("해커톤 주제 제출")
+        $isTeamApp = $title.Contains("해커톤 앱 제출")
+        $isTeamPitch = $title.Contains("해커톤 발표자료 제출")
+
+        echo "isCsc=$isCsc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamTopic=$isTeamTopic" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamApp=$isTeamApp" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamPitch=$isTeamPitch" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
     - name: Check challenge code
+      if: steps.issue-type.outputs.isCsc == 'true'
       id: challenge
       shell: pwsh
       run: |
@@ -95,19 +130,19 @@ jobs:
         echo "isValidCode=$isValidCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
     - name: Extract Microsoft Learn profile link
+      if: steps.issue-type.outputs.isCsc == 'true'
       id: profile
       shell: pwsh
       run: |
         $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-learnprofile/Get-LearnProfile.ps1"
         Invoke-RestMethod $scriptUrl | Out-File ~/Get-LearnProfile.ps1
 
-        $text = '${{ steps.issue.outputs.body }}' -replace '\"', ''
-        $profileLink = $(~/Get-LearnProfile.ps1 -Text $text)
+        $profileLink = $(~/Get-LearnProfile.ps1 -Text ${{ steps.issue.outputs.body }})
 
         echo "link=$profileLink" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
     - name: Add a label - Overdue
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,7 +152,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
 
     - name: Comment to issue - Overdue
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -134,7 +169,7 @@ jobs:
           그동안 클라우드 스킬 챌린지 이벤트에 참여해 주셔서 감사 드립니다. 하지만 우리는 해커톤이 있잖아요? 거기서 다시 만나요!
 
     - name: Close issue - Overdue
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +179,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
 
     - name: Add a label - Invalid challenge code
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -154,7 +189,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
   
     - name: Comment to issue - Invalid challenge code
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false'
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -171,7 +206,7 @@ jobs:
           이 이슈는 자동으로 닫힐 예정이니, 새롭게 이슈를 생성해 주시기 바랍니다.
   
     - name: Close issue - Invalid challenge code
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'false'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -181,7 +216,7 @@ jobs:
           -R ${{ github.event.repository.full_name }}
   
     - name: Add a label - Acknowledge
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -191,18 +226,18 @@ jobs:
           -R ${{ github.event.repository.full_name }}
 
     - name: Get random assignee
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' && steps.issue.outputs.assignee == '' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' && steps.issue.outputs.assignee == ''
       id: assignee
       shell: pwsh
       run: |
         $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-randomassignee/Get-RandomAssignee.ps1"
         Invoke-RestMethod $scriptUrl | Out-File ~/Get-RandomAssignee.ps1
-        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ secrets.INSPECTORS }}")
+        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ vars.VERIFIERS }}")
 
         echo "githubId=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
     - name: Assign an inspector
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' && steps.issue.outputs.assignee == '' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' && steps.issue.outputs.assignee == ''
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'add-assignees'
@@ -211,7 +246,7 @@ jobs:
         assignees: ${{ steps.assignee.outputs.githubId }}
 
     - name: Comment to issue - Acknowledge
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true'
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -228,31 +263,10 @@ jobs:
           🔹 해커그라운드 운영진 일동 🔹
 
     - name: Call Power Automate workflow
-      if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' }}
+      if: steps.issue-type.outputs.isCsc == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true'
       id: request
       uses: fjogeleit/http-request-action@v1
       with:
         url: ${{ secrets.PAU_ON_CHALLENGE_SUBMITTED_URL }}
         method: 'POST'
         data: '{ "githubId": "${{ steps.issue.outputs.githubId }}", "msLearnProfileLink": "${{ steps.profile.outputs.link }}", "challengeCode": "${{ steps.challenge.outputs.codeUpper }}" }'
-
-    # - name: Check the response from Power Automate workflow
-    #   if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' }}
-    #   id: response
-    #   run: |
-    #     echo "statusCode=${{ fromJson(steps.request.outputs.response).statusCode }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-
-    # - name: Comment to issue - Power Automate workflow
-    #   if: ${{ steps.checkpoint.outputs.isOverdue == 'false' && steps.challenge.outputs.isValidCode == 'true' && steps.response.outputs.statusCode == '400' }}
-    #   uses: actions-cool/issues-helper@v3
-    #   with:
-    #     actions: 'create-comment'
-    #     token: ${{ secrets.GITHUB_TOKEN }}
-    #     issue-number: ${{ steps.issue.outputs.number }}
-    #     emoji: '+1,eyes,confused'
-    #     body: |
-    #       🚨 @${{ steps.issue.outputs.githubId }} 님!
-
-    #       현재 @${{ steps.issue.outputs.githubId }}님의 GitHub ID를 시스템에서 확인할 수 없습니다. 😱
-
-    #       저희 해커그라운드 조직위원회로 빠른 연락 부탁 드립니다. 🙏🏼

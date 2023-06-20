@@ -1,0 +1,236 @@
+name: On Team Topic Submitted
+
+on:
+  issues:
+    types:
+    - opened
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: 'Issue number'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  verification-start:
+    name: 'Starting verification'
+
+    runs-on: ubuntu-latest
+
+    steps:
+    # - name: Check event payload
+    #   shell: pwsh
+    #   run: |
+    #     $eventPayload = ${{ toJson(github) }}
+
+    - name: Get GitHub access token
+      id: github-connect
+      shell: pwsh
+      run: |
+        $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
+  
+        # Get a random number
+        $random = Get-Random -Minimum 0 -Maximum $ids.Length
+  
+        # Get the random assignee
+        $id = $ids[$random]
+
+        $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/access-token?id=$id"
+        $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
+
+        echo "::add-mask::$token"
+        echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+    - name: Check issue details
+      id: issue
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ steps.github-connect.outputs.token }}
+      run: |
+        if ("${{ github.event_name}}" -eq "workflow_dispatch") {
+          echo "number=${{ github.event.inputs.issue-number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+          $issue = $(gh api /repos/${{ github.repository }}/issues/${{ github.event.inputs.issue-number }} | ConvertFrom-Json)
+          echo "title=$($issue.title)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          $body = $($issue.body) | ConvertTo-Json -Compress
+          echo "body=$body" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          $created_at=$($issue.created_at.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz"))
+          echo "created_at=$created_at" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          echo "githubId=$($issue.user.login)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "assignee=$($issue.assignee)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        } else {
+          echo "number=${{ github.event.issue.number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+
+          echo "title=$('${{ github.event.issue.title }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          $body = $("${{ github.event.issue.body }}") | ConvertTo-Json -Compress
+          echo "body=$body" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+          echo "created_at=$('${{ github.event.issue.created_at }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "githubId=$('${{ github.event.issue.user.login }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+          echo "assignee=$('${{ github.event.issue.assignee }}')" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        }
+
+    - name: Check issue date/time
+      id: checkpoint
+      shell: pwsh
+      run: |
+        $tz = [TimeZoneInfo]::FindSystemTimeZoneById("Asia/Seoul")
+        $dateSubmitted = [DateTimeOffset]::Parse("${{ steps.issue.outputs.created_at }}")
+        $offset = $tz.GetUtcOffset($dateSubmitted)
+
+        $dateSubmitted = $dateSubmitted.ToOffset($offset)
+        $dateDue = $([DateTimeOffset]::Parse("${{ vars.HG_DUE_ROUND_2 }}"))
+        $isOverdue = "$($dateSubmitted -gt $dateDue)".ToLowerInvariant()
+
+        $dateSubmittedValue = $dateSubmitted.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+        $dateDueValue = $dateDue.ToString("yyyy-MM-ddTHH:mm:ss.fffzzz")
+
+        echo "dateSubmitted=$dateSubmittedValue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "dateDue=$dateDueValue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isOverdue=$isOverdue" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Check issue type
+      id: issue-type
+      shell: pwsh
+      run: |
+        $title = "${{ steps.issue.outputs.title }}"
+
+        $isCsc = $title.Contains("챌린지 완료 인증")
+        $isTeamTopic = $title.Contains("해커톤 주제 제출")
+        $isTeamApp = $title.Contains("해커톤 앱 제출")
+        $isTeamPitch = $title.Contains("해커톤 발표자료 제출")
+
+        echo "isCsc=$isCsc" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamTopic=$isTeamTopic" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamApp=$isTeamApp" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+        echo "isTeamPitch=$isTeamPitch" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Check team name
+      if: steps.issue-type.outputs.isTeamTopic == 'true'
+      id: team
+      shell: pwsh
+      run: |
+        $title = "${{ steps.issue.outputs.title }}"
+        $teamName = $title.Contains("]") ? $title.Substring(0, $title.IndexOf(']')).Replace("[", "").Replace("]", "").Trim().ToLowerInvariant() : ""
+
+        echo "name=$teamName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Extract team repository link
+      if: steps.issue-type.outputs.isTeamTopic == 'true'
+      id: repository
+      shell: pwsh
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-teamrepository/Get-TeamRepository.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Get-TeamRepository.ps1
+
+        $repositoryName = $(~/Get-TeamRepository.ps1 -Text ${{ steps.issue.outputs.body }})
+
+        echo "name=$repositoryName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Add a label - Overdue
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue edit ${{ steps.issue.outputs.number }} \
+          --add-label "round-2,hackathon,team-topic,overdue" \
+          -R ${{ github.event.repository.full_name }}
+
+    - name: Comment to issue - Overdue
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'create-comment'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        body: |
+          👋🏼 @${{ steps.issue.outputs.githubId }} 님!
+
+          * 이슈 제출 시각: ${{ steps.checkpoint.outputs.dateSubmitted }}
+          * 이슈 마감 시각: ${{ steps.checkpoint.outputs.dateDue }}
+
+          안타깝게도 제출하신 이슈는 마감 기한인 ${{ steps.checkpoint.outputs.dateDue }}을 넘기셨습니다. 😭 따라서, 향후 심사시 감점 요소로 작용하게 됩니다.
+
+          하지만, 그렇다고 해서 해커톤이 끝난 건 아니잖아요? 다음 라운드가 더 중요합니다! 💪
+          
+          부지런히 코딩하고, 팀원들과 소통하며, 더 좋은 결과물을 만들어봅시다. 🚀 그리고 필요하면 기술 멘토님과 비기술 멘토님들께 도움을 요청하세요. 🙏
+
+    - name: Add a label - Acknowledge
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'false'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh issue edit ${{ steps.issue.outputs.number }} \
+          --add-label "round-2,hackathon,team-topic,submitted,verifying" \
+          -R ${{ github.event.repository.full_name }}
+
+    - name: Get random assignee
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.issue.outputs.assignee == ''
+      id: assignee
+      shell: pwsh
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-randomassignee/Get-RandomAssignee.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Get-RandomAssignee.ps1
+        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ vars.VERIFIERS }}")
+
+        echo "githubId=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Assign an inspector
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.issue.outputs.assignee == ''
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'add-assignees'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        assignees: ${{ steps.assignee.outputs.githubId }}
+
+    - name: Comment to issue - Acknowledge
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'false'
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'create-comment'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        emoji: '+1,rocket'
+        body: |
+          👋🏼 @${{ steps.issue.outputs.githubId }} 님!
+
+          해커톤 주제를 제출해 주셔서 감사합니다.
+
+          @${{ steps.assignee.outputs.githubId }} 님께서 최대한 빠르게 확인해 드리겠습니다! 😊
+
+          이제 바로 애플리케이션 개발을 시작해 주세요. 더 중요한 다음 라운드가 다가오고 있습니다! 💪
+          
+          부지런히 코딩하고, 팀원들과 소통하며, 더 좋은 결과물을 만들어봅시다. 🚀 그리고 필요하면 기술 멘토님과 비기술 멘토님들께 도움을 요청하세요. 🙏
+
+    - name: Call Power Automate workflow
+      if: steps.issue-type.outputs.isTeamTopic == 'true' && steps.checkpoint.outputs.isOverdue == 'false'
+      id: request
+      uses: fjogeleit/http-request-action@v1
+      with:
+        url: ${{ secrets.PAU_ON_ROUND_2_SUBMITTED_URL }}
+        method: 'POST'
+        data: '{ "issueNumber": ${{ steps.issue.outputs.number }}, "githubId": "${{ steps.issue.outputs.githubId }}", "teamName": "${{ steps.team.outputs.name }}", "repositoryName": "${{ steps.repository.outputs.name }}", "dateSubmitted": "${{ steps.checkpoint.outputs.dateSubmitted }}" }'
+
+    - name: Post message to Discord
+      if: steps.issue-type.outputs.isTeamTopic == 'true'
+      uses: Ilshidur/action-discord@master
+      env:
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_TEAM_ANNOUNCEMENT_WEBHOOK_URL }}
+      with:
+        args: |
+          "${{ steps.team.outputs.name }}"팀이 주제 선정 결과를 제출했습니다. 💪
+
+          - 제출 시각: ${{ steps.checkpoint.outputs.dateSubmitted }}
+          - 마감 시각: ${{ steps.checkpoint.outputs.dateDue }}
