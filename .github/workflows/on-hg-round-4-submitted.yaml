@@ -138,6 +138,26 @@ jobs:
 
         echo "name=$repositoryName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
+    - name: Get random assignee
+      if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.issue.outputs.assignee == ''
+      id: assignee
+      shell: pwsh
+      run: |
+        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-randomassignee/Get-RandomAssignee.ps1"
+        Invoke-RestMethod $scriptUrl | Out-File ~/Get-RandomAssignee.ps1
+        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ vars.VERIFIERS }}")
+
+        echo "githubId=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+
+    - name: Assign an inspector
+      if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.issue.outputs.assignee == ''
+      uses: actions-cool/issues-helper@v3
+      with:
+        actions: 'add-assignees'
+        token: ${{ secrets.GITHUB_TOKEN }}
+        issue-number: ${{ steps.issue.outputs.number }}
+        assignees: ${{ steps.assignee.outputs.githubId }}
+
     - name: Add a label - Overdue
       if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.checkpoint.outputs.isOverdue == 'true'
       shell: bash
@@ -174,26 +194,6 @@ jobs:
         gh issue edit ${{ steps.issue.outputs.number }} \
           --add-label "round-4,hackathon,team-pitch,submitted,verifying" \
           -R ${{ github.event.repository.full_name }}
-
-    - name: Get random assignee
-      if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.issue.outputs.assignee == ''
-      id: assignee
-      shell: pwsh
-      run: |
-        $scriptUrl = "https://raw.githubusercontent.com/hackersground-kr/operations/main/get-randomassignee/Get-RandomAssignee.ps1"
-        Invoke-RestMethod $scriptUrl | Out-File ~/Get-RandomAssignee.ps1
-        $assignee = $(~/Get-RandomAssignee.ps1 -Assignees "${{ vars.VERIFIERS }}")
-
-        echo "githubId=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-
-    - name: Assign an inspector
-      if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.checkpoint.outputs.isOverdue == 'false' && steps.issue.outputs.assignee == ''
-      uses: actions-cool/issues-helper@v3
-      with:
-        actions: 'add-assignees'
-        token: ${{ secrets.GITHUB_TOKEN }}
-        issue-number: ${{ steps.issue.outputs.number }}
-        assignees: ${{ steps.assignee.outputs.githubId }}
 
     - name: Comment to issue - Acknowledge
       if: steps.issue-type.outputs.isTeamPitch == 'true' && steps.checkpoint.outputs.isOverdue == 'false'
