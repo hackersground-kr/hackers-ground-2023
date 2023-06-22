@@ -21,13 +21,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # - name: Login to Azure
-    #   uses: azure/login@v1
-    #   with:
-    #     creds: ${{ secrets.AZURE_CREDENTIALS }}
-    #     # client-id: ${{ env.AZURE_CLIENT_ID }}
-    #     # tenant-id: ${{ env.AZURE_TENANT_ID }}
-    #     # subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}        
+    - name: Login to Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS_2 }}
+        # client-id: ${{ env.AZURE_CLIENT_ID }}
+        # tenant-id: ${{ env.AZURE_TENANT_ID }}
+        # subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
     # - name: Post message to Discord
     #   uses: Ilshidur/action-discord@master
     #   env:
@@ -38,58 +39,58 @@ jobs:
 
     #       헬로월드
 
-    - name: Get GitHub access token
-      id: github-connect
-      shell: pwsh
-      run: |
-        $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
+    # - name: Get GitHub access token
+    #   id: github-connect
+    #   shell: pwsh
+    #   run: |
+    #     $ids = "${{ vars.ACCESS_TOKEN_IDS }}" -split ","
   
-        # Get a random number
-        $random = Get-Random -Minimum 0 -Maximum $ids.Length
+    #     # Get a random number
+    #     $random = Get-Random -Minimum 0 -Maximum $ids.Length
   
-        # Get the random assignee
-        $id = $ids[$random]
+    #     # Get the random assignee
+    #     $id = $ids[$random]
 
-        $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/access-token?id=$id"
-        $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
+    #     $tokenUrl = "${{ vars.ACCESS_TOKEN_BASE_URL }}/access-token?id=$id"
+    #     $token = $(Invoke-RestMethod $tokenUrl -Headers @{ "Ocp-Apim-Subscription-Key" = "${{ secrets.APIM_SUBSCRIPTION_KEY }}" })
 
-        echo "::add-mask::$token"
-        echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+    #     echo "::add-mask::$token"
+    #     echo "token=$token" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
 
-    - name: Check issue details
-      id: issue
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ steps.github-connect.outputs.token }}
-      run: |
-        if ("${{ github.event_name}}" -eq "workflow_dispatch") {
-          echo "number=${{ github.event.inputs.issue-number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+    # - name: Check issue details
+    #   id: issue
+    #   shell: pwsh
+    #   env:
+    #     GH_TOKEN: ${{ steps.github-connect.outputs.token }}
+    #   run: |
+    #     if ("${{ github.event_name}}" -eq "workflow_dispatch") {
+    #       echo "number=${{ github.event.inputs.issue-number }}" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
 
-          $issue = $(gh api /repos/${{ github.repository }}/issues/${{ github.event.inputs.issue-number }} | ConvertFrom-Json)
-          echo "title=$($issue.title)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       $issue = $(gh api /repos/${{ github.repository }}/issues/${{ github.event.inputs.issue-number }} | ConvertFrom-Json)
+    #       echo "title=$($issue.title)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
-          $issue.body
+    #       $issue.body
 
-          # echo "githubId=$($issue.user.login)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "assignee=$($issue.assignee)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "githubId=$($issue.user.login)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "assignee=$($issue.assignee)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
 
-          # $verified = ("${{ github.event.inputs.verified }}".ToLowerInvariant() -eq "true") ? "true" : "false"
-          # $invalid = ""
+    #       # $verified = ("${{ github.event.inputs.verified }}".ToLowerInvariant() -eq "true") ? "true" : "false"
+    #       # $invalid = ""
 
-          # echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-        } else {
-          # $number = "${{ github.event.issue.number }}"
-          # $title = "${{ github.event.issue.title }}"
-          # $githubId = "${{ github.event.issue.user.login }}"
-          # $assignee = "${{ github.event.issue.assignee }}"
-          # $verified = ("${{ github.event.comment.body }}".Contains("/ok")) ? "true" : ""
-          # $invalid = ("${{ github.event.comment.body }}".Contains("/invalid")) ? "true" : ""
+    #       # echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #     } else {
+    #       # $number = "${{ github.event.issue.number }}"
+    #       # $title = "${{ github.event.issue.title }}"
+    #       # $githubId = "${{ github.event.issue.user.login }}"
+    #       # $assignee = "${{ github.event.issue.assignee }}"
+    #       # $verified = ("${{ github.event.comment.body }}".Contains("/ok")) ? "true" : ""
+    #       # $invalid = ("${{ github.event.comment.body }}".Contains("/invalid")) ? "true" : ""
 
-          # echo "number=$number" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
-          # echo "title=$title" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "githubId=$githubId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "assignee=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-          # echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
-        }
+    #       # echo "number=$number" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8
+    #       # echo "title=$title" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "githubId=$githubId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "assignee=$assignee" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "verified=$verified" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #       # echo "invalid=$invalid" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf-8 -Append
+    #     }
